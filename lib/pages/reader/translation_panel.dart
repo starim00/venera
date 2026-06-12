@@ -50,6 +50,7 @@ class _PageTranslationSheetState extends State<_PageTranslationSheet> {
         forceRefresh: forceRefresh,
       );
       if (!mounted) return;
+      reader.setTranslationResult(translated);
       setState(() {
         result = translated;
         loading = false;

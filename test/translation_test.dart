@@ -18,7 +18,12 @@ void main() {
           {
             "order": 1,
             "original": "こんにちは",
-            "translated": "你好"
+            "translated": "你好",
+            "imageIndex": 0,
+            "x": 0.12,
+            "y": 0.2,
+            "width": 0.4,
+            "height": 0.16
           }
         ]
       }
@@ -27,6 +32,51 @@ void main() {
       expect(result.sourceLanguage, 'ja');
       expect(result.targetLanguage, 'zh-CN');
       expect(result.items.single.translated, '你好');
+      expect(result.items.single.imageIndex, 0);
+      expect(result.items.single.hasValidBounds, true);
+      expect(result.items.single.normalizedBounds.left, 0.12);
+    });
+
+    test('accepts items without location fields', () {
+      final result = TranslationResult.parse('''
+      {
+        "sourceLanguage": "ja",
+        "targetLanguage": "zh-CN",
+        "items": [
+          {
+            "order": 1,
+            "original": "こんにちは",
+            "translated": "你好"
+          }
+        ]
+      }
+      ''');
+
+      expect(result.items.single.hasValidBounds, false);
+      expect(result.items.single.page, isNull);
+    });
+
+    test('ignores invalid bounds for overlay use', () {
+      final result = TranslationResult.parse('''
+      {
+        "sourceLanguage": "ja",
+        "targetLanguage": "zh-CN",
+        "items": [
+          {
+            "order": 1,
+            "original": "こんにちは",
+            "translated": "你好",
+            "imageIndex": 0,
+            "x": -0.1,
+            "y": 0.2,
+            "width": 0.3,
+            "height": 0.1
+          }
+        ]
+      }
+      ''');
+
+      expect(result.items.single.hasValidBounds, false);
     });
 
     test('throws on invalid JSON', () {
@@ -99,6 +149,7 @@ void main() {
       );
 
       expect(key1, isNot(key2));
+      expect(key1, startsWith('page_translation_v2@'));
     });
   });
 
@@ -134,6 +185,8 @@ void main() {
     );
 
     expect(result.items.single.translated, '你好');
+    expect(result.items.single.imageIndex, 0);
+    expect(result.items.single.page, 1);
     expect(
       adapter.options?.uri.toString(),
       'https://example.com/v1/chat/completions',
@@ -144,10 +197,10 @@ void main() {
       adapter.options?.extra['maskHeadersInLog'],
       contains('Authorization'),
     );
-    expect(
-      jsonEncode(adapter.options?.data),
-      contains('data:image/jpeg;base64'),
-    );
+    final requestBody = jsonEncode(adapter.options?.data);
+    expect(requestBody, contains('data:image/jpeg;base64'));
+    expect(requestBody, contains('imageIndex'));
+    expect(requestBody, contains('x/y/width/height'));
 
     cache.close();
     await dir.delete(recursive: true);
@@ -176,7 +229,16 @@ class _FakeAdapter implements HttpClientAdapter {
                 'sourceLanguage': 'ja',
                 'targetLanguage': 'zh-CN',
                 'items': [
-                  {'order': 1, 'original': 'こんにちは', 'translated': '你好'},
+                  {
+                    'order': 1,
+                    'original': 'こんにちは',
+                    'translated': '你好',
+                    'imageIndex': 0,
+                    'x': 0.1,
+                    'y': 0.2,
+                    'width': 0.3,
+                    'height': 0.1,
+                  },
                 ],
               }),
             },

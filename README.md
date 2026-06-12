@@ -29,7 +29,8 @@ feature experiments.
 - Page-level reader translation panel powered by OpenAI-compatible multimodal
   chat completions.
 - Manual translation of the currently visible reader page or multi-page spread,
-  with a bottom-sheet translation result panel.
+  with a bottom-sheet translation result panel and positioned translation
+  bubbles over the visible page when the model returns locations.
 - Local translation cache keyed by source, comic, episode, page range, image
   hash, target language, and model.
 - Translation settings for endpoint, API key, model, target language, system

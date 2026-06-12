@@ -174,6 +174,12 @@ class _TranslationSettingsPageState extends State<_TranslationSettingsPage> {
                         .tl,
                 settingKey: "ignoreBadCertificate",
               ),
+              _SwitchSetting(
+                title: "Show Translation Overlay".tl,
+                subtitle:
+                    "Show translated bubbles on the current reader page.".tl,
+                settingKey: "showTranslationOverlay",
+              ),
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 onPressed: clearCache,

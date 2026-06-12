@@ -26,9 +26,10 @@ class ComicImage extends StatefulWidget {
     int? cacheHeight,
     this.onInit,
     this.onDispose,
-  })  : image = ResizeImage.resizeIfNeeded(cacheWidth, cacheHeight, image),
-        assert(cacheWidth == null || cacheWidth > 0),
-        assert(cacheHeight == null || cacheHeight > 0);
+    this.onImageChanged,
+  }) : image = ResizeImage.resizeIfNeeded(cacheWidth, cacheHeight, image),
+       assert(cacheWidth == null || cacheWidth > 0),
+       assert(cacheHeight == null || cacheHeight > 0);
 
   final ImageProvider image;
 
@@ -65,6 +66,8 @@ class ComicImage extends StatefulWidget {
   final void Function(State<ComicImage> state)? onInit;
 
   final void Function(State<ComicImage> state)? onDispose;
+
+  final VoidCallback? onImageChanged;
 
   static void clear() => _ComicImageState.clear();
 
@@ -153,8 +156,38 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
     return renderBox.paintBounds.contains(localPoint);
   }
 
+  Rect? get imagePaintBounds {
+    if (!mounted || _imageInfo == null) {
+      return null;
+    }
+    final renderObject = context.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return null;
+    }
+    final outputSize = renderObject.size;
+    final inputSize = Size(
+      _imageInfo!.image.width.toDouble() / _imageInfo!.scale,
+      _imageInfo!.image.height.toDouble() / _imageInfo!.scale,
+    );
+    if (outputSize.width <= 0 ||
+        outputSize.height <= 0 ||
+        inputSize.width <= 0 ||
+        inputSize.height <= 0) {
+      return null;
+    }
+    final fitted = applyBoxFit(
+      widget.fit ?? BoxFit.scaleDown,
+      inputSize,
+      outputSize,
+    );
+    final direction = Directionality.maybeOf(context) ?? TextDirection.ltr;
+    final alignment = widget.alignment.resolve(direction);
+    return alignment.inscribe(fitted.destination, Offset.zero & outputSize);
+  }
+
   void _updateInvertColors() {
-    _invertColors = MediaQuery.maybeInvertColorsOf(context) ??
+    _invertColors =
+        MediaQuery.maybeInvertColorsOf(context) ??
         SemanticsBinding.instance.accessibilityFeatures.invertColors;
   }
 
@@ -163,13 +196,14 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
       context: _scrollAwareContext,
       imageProvider: widget.image,
     );
-    final ImageStream newStream =
-        provider.resolve(createLocalImageConfiguration(
-      context,
-      size: widget.width != null && widget.height != null
-          ? Size(widget.width!, widget.height!)
-          : null,
-    ));
+    final ImageStream newStream = provider.resolve(
+      createLocalImageConfiguration(
+        context,
+        size: widget.width != null && widget.height != null
+            ? Size(widget.width!, widget.height!)
+            : null,
+      ),
+    );
     _updateSourceStream(newStream);
   }
 
@@ -199,6 +233,11 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
       _frameNumber = _frameNumber == null ? 0 : _frameNumber! + 1;
       _wasSynchronouslyLoaded = _wasSynchronouslyLoaded | synchronousCall;
     });
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.onImageChanged?.call();
+      }
+    });
   }
 
   void _handleImageChunk(ImageChunkEvent event) {
@@ -210,8 +249,9 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
 
   void _replaceImage({required ImageInfo? info}) {
     final ImageInfo? oldImageInfo = _imageInfo;
-    SchedulerBinding.instance
-        .addPostFrameCallback((_) => oldImageInfo?.dispose());
+    SchedulerBinding.instance.addPostFrameCallback(
+      (_) => oldImageInfo?.dispose(),
+    );
     _imageInfo = info;
   }
 
@@ -293,20 +333,16 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
               children: [
                 Expanded(
                   child: Center(
-                    child: Text(
-                      _lastException.toString(),
-                      maxLines: 3,
-                    ),
+                    child: Text(_lastException.toString(), maxLines: 3),
                   ),
                 ),
-                const SizedBox(
-                  height: 4,
-                ),
+                const SizedBox(height: 4),
                 MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: Listener(
                     onPointerDown: (details) {
-                      GlobalState.find<_ReaderGestureDetectorState>().ignoreNextTap();
+                      GlobalState.find<_ReaderGestureDetectorState>()
+                          .ignoreNextTap();
                       setState(() {
                         _loadingProgress = null;
                         _lastException = null;
@@ -325,9 +361,7 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-                const SizedBox(
-                  height: 16,
-                ),
+                const SizedBox(height: 16),
               ],
             ),
           ),
@@ -335,100 +369,103 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
       );
     }
 
-    return LayoutBuilder(builder: (context, constrains) {
-      var width = widget.width;
-      var height = widget.height;
+    return LayoutBuilder(
+      builder: (context, constrains) {
+        var width = widget.width;
+        var height = widget.height;
 
-      if (_imageInfo != null) {
-        // Record the height and the width of the image
-        _cache[widget.image.hashCode] = Size(_imageInfo!.image.width.toDouble(),
-            _imageInfo!.image.height.toDouble());
-      }
-
-      Size? cacheSize = _cache[widget.image.hashCode];
-      if (cacheSize != null) {
-        if (width == double.infinity) {
-          width = constrains.maxWidth;
-          height = width * cacheSize.height / cacheSize.width;
-        } else if (height == double.infinity) {
-          height = constrains.maxHeight;
-          width = height * cacheSize.width / cacheSize.height;
-        }
-      } else {
-        if (width == double.infinity) {
-          width = constrains.maxWidth;
-          height = 300;
-        } else if (height == double.infinity) {
-          height = constrains.maxHeight;
-          width = 300;
-        }
-      }
-
-      if (_imageInfo != null) {
-        // build image
-        Widget result = RawImage(
-          // Do not clone the image, because RawImage is a stateless wrapper.
-          // The image will be disposed by this state object when it is not needed
-          // anymore, such as when it is unmounted or when the image stream pushes
-          // a new image.
-          image: _imageInfo?.image,
-          debugImageLabel: _imageInfo?.debugLabel,
-          width: width,
-          height: height,
-          scale: _imageInfo?.scale ?? 1.0,
-          color: widget.color,
-          opacity: widget.opacity,
-          colorBlendMode: widget.colorBlendMode,
-          fit: widget.fit,
-          alignment: widget.alignment,
-          repeat: widget.repeat,
-          centerSlice: widget.centerSlice,
-          matchTextDirection: widget.matchTextDirection,
-          invertColors: _invertColors,
-          isAntiAlias: widget.isAntiAlias,
-          filterQuality: widget.filterQuality,
-        );
-
-        if (!widget.excludeFromSemantics) {
-          result = Semantics(
-            container: widget.semanticLabel != null,
-            image: true,
-            label: widget.semanticLabel ?? '',
-            child: result,
+        if (_imageInfo != null) {
+          // Record the height and the width of the image
+          _cache[widget.image.hashCode] = Size(
+            _imageInfo!.image.width.toDouble(),
+            _imageInfo!.image.height.toDouble(),
           );
         }
-        result = SizedBox(
-          width: width,
-          height: height,
-          child: Center(
-            child: result,
-          ),
-        );
-        return result;
-      } else {
-        // build progress
-        return SizedBox(
-          width: width,
-          height: height,
-          child: Center(
-            child: SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                backgroundColor: context.colorScheme.surfaceContainer,
-                value: (_loadingProgress != null &&
-                        _loadingProgress!.expectedTotalBytes != null &&
-                        _loadingProgress!.expectedTotalBytes! != 0)
-                    ? _loadingProgress!.cumulativeBytesLoaded /
-                        _loadingProgress!.expectedTotalBytes!
-                    : 0,
+
+        Size? cacheSize = _cache[widget.image.hashCode];
+        if (cacheSize != null) {
+          if (width == double.infinity) {
+            width = constrains.maxWidth;
+            height = width * cacheSize.height / cacheSize.width;
+          } else if (height == double.infinity) {
+            height = constrains.maxHeight;
+            width = height * cacheSize.width / cacheSize.height;
+          }
+        } else {
+          if (width == double.infinity) {
+            width = constrains.maxWidth;
+            height = 300;
+          } else if (height == double.infinity) {
+            height = constrains.maxHeight;
+            width = 300;
+          }
+        }
+
+        if (_imageInfo != null) {
+          // build image
+          Widget result = RawImage(
+            // Do not clone the image, because RawImage is a stateless wrapper.
+            // The image will be disposed by this state object when it is not needed
+            // anymore, such as when it is unmounted or when the image stream pushes
+            // a new image.
+            image: _imageInfo?.image,
+            debugImageLabel: _imageInfo?.debugLabel,
+            width: width,
+            height: height,
+            scale: _imageInfo?.scale ?? 1.0,
+            color: widget.color,
+            opacity: widget.opacity,
+            colorBlendMode: widget.colorBlendMode,
+            fit: widget.fit,
+            alignment: widget.alignment,
+            repeat: widget.repeat,
+            centerSlice: widget.centerSlice,
+            matchTextDirection: widget.matchTextDirection,
+            invertColors: _invertColors,
+            isAntiAlias: widget.isAntiAlias,
+            filterQuality: widget.filterQuality,
+          );
+
+          if (!widget.excludeFromSemantics) {
+            result = Semantics(
+              container: widget.semanticLabel != null,
+              image: true,
+              label: widget.semanticLabel ?? '',
+              child: result,
+            );
+          }
+          result = SizedBox(
+            width: width,
+            height: height,
+            child: Center(child: result),
+          );
+          return result;
+        } else {
+          // build progress
+          return SizedBox(
+            width: width,
+            height: height,
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  backgroundColor: context.colorScheme.surfaceContainer,
+                  value:
+                      (_loadingProgress != null &&
+                          _loadingProgress!.expectedTotalBytes != null &&
+                          _loadingProgress!.expectedTotalBytes! != 0)
+                      ? _loadingProgress!.cumulativeBytesLoaded /
+                            _loadingProgress!.expectedTotalBytes!
+                      : 0,
+                ),
               ),
             ),
-          ),
-        );
-      }
-    });
+          );
+        }
+      },
+    );
   }
 
   @override
@@ -436,10 +473,15 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
     super.debugFillProperties(description);
     description.add(DiagnosticsProperty<ImageStream>('stream', _imageStream));
     description.add(DiagnosticsProperty<ImageInfo>('pixels', _imageInfo));
-    description.add(DiagnosticsProperty<ImageChunkEvent>(
-        'loadingProgress', _loadingProgress));
+    description.add(
+      DiagnosticsProperty<ImageChunkEvent>('loadingProgress', _loadingProgress),
+    );
     description.add(DiagnosticsProperty<int>('frameNumber', _frameNumber));
-    description.add(DiagnosticsProperty<bool>(
-        'wasSynchronouslyLoaded', _wasSynchronouslyLoaded));
+    description.add(
+      DiagnosticsProperty<bool>(
+        'wasSynchronouslyLoaded',
+        _wasSynchronouslyLoaded,
+      ),
+    );
   }
 }

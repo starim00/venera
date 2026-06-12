@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -15,6 +16,7 @@ Read all visible dialogue, narration, sound effects, and important signs in the 
 Return strict JSON only. Do not wrap it in markdown.
 Keep the reading order natural for the page.
 If text is unreadable, omit it instead of guessing.
+For each item, include the text region when you can locate it. Coordinates must be normalized to the original image: x, y, width, height are numbers from 0 to 1. imageIndex is the zero-based index of the provided image.
 Schema:
 {
   "sourceLanguage": "detected language code or unknown",
@@ -24,6 +26,11 @@ Schema:
       "order": 1,
       "original": "source text",
       "translated": "translated text",
+      "imageIndex": 0,
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.3,
+      "height": 0.1,
       "speaker": null,
       "note": null
     }
@@ -36,6 +43,12 @@ class TranslationItem {
     required this.order,
     required this.original,
     required this.translated,
+    this.imageIndex,
+    this.page,
+    this.x,
+    this.y,
+    this.width,
+    this.height,
     this.speaker,
     this.note,
   });
@@ -43,6 +56,12 @@ class TranslationItem {
   final int order;
   final String original;
   final String translated;
+  final int? imageIndex;
+  final int? page;
+  final double? x;
+  final double? y;
+  final double? width;
+  final double? height;
   final String? speaker;
   final String? note;
 
@@ -54,8 +73,70 @@ class TranslationItem {
       order: (json['order'] as num?)?.toInt() ?? fallbackOrder,
       original: json['original']?.toString() ?? '',
       translated: json['translated']?.toString() ?? '',
+      imageIndex: (json['imageIndex'] as num?)?.toInt(),
+      page: (json['page'] as num?)?.toInt(),
+      x: (json['x'] as num?)?.toDouble(),
+      y: (json['y'] as num?)?.toDouble(),
+      width: (json['width'] as num?)?.toDouble(),
+      height: (json['height'] as num?)?.toDouble(),
       speaker: json['speaker']?.toString(),
       note: json['note']?.toString(),
+    );
+  }
+
+  bool get hasValidBounds {
+    final values = [x, y, width, height];
+    if (values.any((e) => e == null || !e.isFinite)) {
+      return false;
+    }
+    return x! >= 0 &&
+        y! >= 0 &&
+        x! <= 1 &&
+        y! <= 1 &&
+        width! > 0 &&
+        height! > 0;
+  }
+
+  Rect get normalizedBounds {
+    final left = x!.clamp(0.0, 1.0);
+    final top = y!.clamp(0.0, 1.0);
+    final right = (x! + width!).clamp(0.0, 1.0);
+    final bottom = (y! + height!).clamp(0.0, 1.0);
+    return Rect.fromLTRB(left, top, right, bottom);
+  }
+
+  TranslationItem normalizePage(int startPage) {
+    if (page != null || imageIndex == null) {
+      return this;
+    }
+    return copyWith(page: startPage + imageIndex!);
+  }
+
+  TranslationItem copyWith({
+    int? order,
+    String? original,
+    String? translated,
+    int? imageIndex,
+    int? page,
+    double? x,
+    double? y,
+    double? width,
+    double? height,
+    String? speaker,
+    String? note,
+  }) {
+    return TranslationItem(
+      order: order ?? this.order,
+      original: original ?? this.original,
+      translated: translated ?? this.translated,
+      imageIndex: imageIndex ?? this.imageIndex,
+      page: page ?? this.page,
+      x: x ?? this.x,
+      y: y ?? this.y,
+      width: width ?? this.width,
+      height: height ?? this.height,
+      speaker: speaker ?? this.speaker,
+      note: note ?? this.note,
     );
   }
 
@@ -63,6 +144,12 @@ class TranslationItem {
     'order': order,
     'original': original,
     'translated': translated,
+    if (imageIndex != null) 'imageIndex': imageIndex,
+    if (page != null) 'page': page,
+    if (x != null) 'x': x,
+    if (y != null) 'y': y,
+    if (width != null) 'width': width,
+    if (height != null) 'height': height,
     if (speaker != null) 'speaker': speaker,
     if (note != null) 'note': note,
   };
@@ -126,6 +213,14 @@ class TranslationResult {
 
   String toText() {
     return items.map((e) => e.translated).where((e) => e.isNotEmpty).join('\n');
+  }
+
+  TranslationResult normalizePages(int startPage) {
+    return TranslationResult(
+      sourceLanguage: sourceLanguage,
+      targetLanguage: targetLanguage,
+      items: items.map((e) => e.normalizePage(startPage)).toList(),
+    );
   }
 }
 
@@ -276,11 +371,11 @@ class TranslationService {
       await _cache.delete(cacheKey);
     }
 
-    final result = await _requestTranslation(
+    final result = (await _requestTranslation(
       images: images,
       targetLanguage: targetLanguage,
       model: model,
-    );
+    )).normalizePages(startPage);
     await _cache.write(cacheKey, result);
     return result;
   }
@@ -376,7 +471,7 @@ class TranslationService {
             {
               'type': 'text',
               'text':
-                  'Translate this comic page to $targetLanguage. Return JSON only.',
+                  'Translate this comic page to $targetLanguage. Return JSON only. Include imageIndex and normalized x/y/width/height for each item when the text region is visible.',
             },
             for (final image in images)
               {
@@ -438,7 +533,7 @@ class TranslationService {
     required String model,
   }) {
     return [
-      'page_translation_v1',
+      'page_translation_v2',
       sourceKey,
       comicId,
       epId,

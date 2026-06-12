@@ -144,6 +144,188 @@ class _ReaderImagesState extends State<_ReaderImages> {
   }
 }
 
+class _TranslatedComicImage extends StatefulWidget {
+  const _TranslatedComicImage({
+    required this.image,
+    required this.imageIndex,
+    this.width,
+    this.height,
+    this.fit,
+    this.alignment = Alignment.center,
+    this.filterQuality = FilterQuality.medium,
+    this.onInit,
+    this.onDispose,
+  });
+
+  final ImageProvider image;
+
+  final int imageIndex;
+
+  final double? width;
+
+  final double? height;
+
+  final BoxFit? fit;
+
+  final AlignmentGeometry alignment;
+
+  final FilterQuality filterQuality;
+
+  final void Function(State<ComicImage> state)? onInit;
+
+  final void Function(State<ComicImage> state)? onDispose;
+
+  @override
+  State<_TranslatedComicImage> createState() => _TranslatedComicImageState();
+}
+
+class _TranslatedComicImageState extends State<_TranslatedComicImage> {
+  _ComicImageState? imageState;
+
+  void _onImageInit(State<ComicImage> state) {
+    imageState = state as _ComicImageState;
+    widget.onInit?.call(state);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _onImageDispose(State<ComicImage> state) {
+    if (imageState == state) {
+      imageState = null;
+    }
+    widget.onDispose?.call(state);
+  }
+
+  void _onImageChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        ComicImage(
+          image: widget.image,
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          alignment: widget.alignment,
+          filterQuality: widget.filterQuality,
+          onInit: _onImageInit,
+          onDispose: _onImageDispose,
+          onImageChanged: _onImageChanged,
+        ),
+        if (imageState != null)
+          Positioned.fill(
+            child: _TranslationBubbleOverlay(
+              imageIndex: widget.imageIndex,
+              imageState: imageState!,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _TranslationBubbleOverlay extends StatelessWidget {
+  const _TranslationBubbleOverlay({
+    required this.imageIndex,
+    required this.imageState,
+  });
+
+  final int imageIndex;
+
+  final _ComicImageState imageState;
+
+  @override
+  Widget build(BuildContext context) {
+    final reader = context.reader;
+    final result = reader.translationResult;
+    if (result == null ||
+        !reader.translationOverlayVisible ||
+        appdata.settings['showTranslationOverlay'] != true) {
+      return const SizedBox();
+    }
+
+    final imageRect = imageState.imagePaintBounds;
+    if (imageRect == null || imageRect.width <= 0 || imageRect.height <= 0) {
+      return const SizedBox();
+    }
+
+    final page = imageIndex + 1;
+    final items = result.items
+        .where(
+          (item) =>
+              item.page == page &&
+              item.hasValidBounds &&
+              item.translated.trim().isNotEmpty,
+        )
+        .toList();
+    if (items.isEmpty) {
+      return const SizedBox();
+    }
+
+    return IgnorePointer(
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          for (final item in items) _buildBubble(context, imageRect, item),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBubble(
+    BuildContext context,
+    Rect imageRect,
+    TranslationItem item,
+  ) {
+    final bounds = item.normalizedBounds;
+    final region = Rect.fromLTWH(
+      imageRect.left + bounds.left * imageRect.width,
+      imageRect.top + bounds.top * imageRect.height,
+      bounds.width * imageRect.width,
+      bounds.height * imageRect.height,
+    );
+
+    final maxWidth = math.min(
+      imageRect.width,
+      math.max(84.0, math.max(region.width, imageRect.width * 0.18)),
+    );
+    final maxLeft = math.max(imageRect.left, imageRect.right - maxWidth);
+    final left = region.left.clamp(imageRect.left, maxLeft).toDouble();
+    final top = region.top
+        .clamp(imageRect.top, math.max(imageRect.top, imageRect.bottom - 28))
+        .toDouble();
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: maxWidth,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.68),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          child: Text(
+            item.translated,
+            maxLines: 6,
+            overflow: TextOverflow.ellipsis,
+            style: ts.s12.withColor(Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _GalleryMode extends StatefulWidget {
   const _GalleryMode({super.key});
 
@@ -330,23 +512,30 @@ class _GalleryModeState extends State<_GalleryMode>
 
             photoViewControllers[index] ??= PhotoViewController();
 
+            final viewportSize = MediaQuery.of(context).size;
             if (reader.imagesPerPage == 1 || pageImages.length == 1) {
-              return PhotoViewGalleryPageOptions(
-                filterQuality: FilterQuality.medium,
+              return PhotoViewGalleryPageOptions.customChild(
+                childSize: viewportSize,
                 controller: photoViewControllers[index],
-                imageProvider: _createImageProviderFromKey(
-                  pageImages[0],
-                  context,
-                  startIndex + 1,
+                minScale: PhotoViewComputedScale.contained * 1.0,
+                maxScale: PhotoViewComputedScale.covered * 10.0,
+                child: _TranslatedComicImage(
+                  image: _createImageProviderFromKey(
+                    pageImages[0],
+                    context,
+                    startIndex + 1,
+                  ),
+                  imageIndex: startIndex,
+                  width: double.infinity,
+                  height: double.infinity,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.medium,
+                  onInit: (state) => imageStates.add(state),
+                  onDispose: (state) => imageStates.remove(state),
                 ),
-                fit: BoxFit.contain,
-                errorBuilder: (_, error, s, retry) {
-                  return NetworkError(message: error.toString(), retry: retry);
-                },
               );
             }
 
-            final viewportSize = MediaQuery.of(context).size;
             return PhotoViewGalleryPageOptions.customChild(
               childSize: viewportSize,
               controller: photoViewControllers[index],
@@ -382,7 +571,8 @@ class _GalleryModeState extends State<_GalleryMode>
         },
         onPageChanged: (i) {
           if (i == 0) {
-            if (reader.isFirstChapterOfGroup || !reader.toPrevChapter(toLastPage: true)) {
+            if (reader.isFirstChapterOfGroup ||
+                !reader.toPrevChapter(toLastPage: true)) {
               controller.jumpToPage(1);
             }
           } else if (i == totalPages + 1) {
@@ -424,7 +614,7 @@ class _GalleryModeState extends State<_GalleryMode>
     if (images.length == 2) {
       imageWidgets = [
         Expanded(
-          child: ComicImage(
+          child: _TranslatedComicImage(
             width: double.infinity,
             height: double.infinity,
             image: _createImageProviderFromKey(
@@ -432,6 +622,7 @@ class _GalleryModeState extends State<_GalleryMode>
               context,
               startIndex + 1,
             ),
+            imageIndex: startIndex,
             fit: BoxFit.contain,
             alignment: axis == Axis.vertical
                 ? Alignment.bottomCenter
@@ -441,7 +632,7 @@ class _GalleryModeState extends State<_GalleryMode>
           ),
         ),
         Expanded(
-          child: ComicImage(
+          child: _TranslatedComicImage(
             width: double.infinity,
             height: double.infinity,
             image: _createImageProviderFromKey(
@@ -449,6 +640,7 @@ class _GalleryModeState extends State<_GalleryMode>
               context,
               startIndex + 2,
             ),
+            imageIndex: startIndex + 1,
             fit: BoxFit.contain,
             alignment: axis == Axis.vertical
                 ? Alignment.topCenter
@@ -459,16 +651,17 @@ class _GalleryModeState extends State<_GalleryMode>
         ),
       ];
     } else {
-      imageWidgets = images.map((imageKey) {
-        startIndex++;
+      imageWidgets = images.asMap().entries.map((entry) {
+        final absoluteIndex = startIndex + entry.key;
         ImageProvider imageProvider = _createImageProviderFromKey(
-          imageKey,
+          entry.value,
           context,
-          startIndex,
+          absoluteIndex + 1,
         );
         return Expanded(
-          child: ComicImage(
+          child: _TranslatedComicImage(
             image: imageProvider,
+            imageIndex: absoluteIndex,
             fit: BoxFit.contain,
             onInit: (state) => imageStates.add(state),
             onDispose: (state) => imageStates.remove(state),
@@ -883,9 +1076,10 @@ class _ContinuousModeState extends State<_ContinuousMode>
 
         return ColoredBox(
           color: context.colorScheme.surface,
-          child: ComicImage(
+          child: _TranslatedComicImage(
             filterQuality: FilterQuality.medium,
             image: image,
+            imageIndex: index - 1,
             width: width,
             height: height,
             fit: BoxFit.contain,
@@ -1244,7 +1438,9 @@ ImageProvider _createImageProviderFromKey(
     reader.cid,
     reader.eid,
     reader.page,
-    enableResize: reader.mode.isContinuous, // For continuous mode, we need to resize the image to improve performance
+    enableResize: reader
+        .mode
+        .isContinuous, // For continuous mode, we need to resize the image to improve performance
   );
 }
 

@@ -243,6 +243,7 @@ class Settings with ChangeNotifier {
     'translationModel': '',
     'translationTargetLanguage': 'system',
     'translationSystemPrompt': '',
+    'showTranslationOverlay': true,
   };
 
   operator [](String key) {
