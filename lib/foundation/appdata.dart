@@ -92,6 +92,7 @@ class Appdata with Init {
     "webdav",
     "disableSyncFields",
     "deviceId",
+    "translationApiKey",
   ];
 
   /// Sync data from another device
@@ -237,6 +238,11 @@ class Settings with ChangeNotifier {
     'showChapterComments': true, // show chapter comments in reader
     'showChapterCommentsAtEnd':
         false, // show chapter comments at end of chapter
+    'translationEndpoint': '',
+    'translationApiKey': '',
+    'translationModel': '',
+    'translationTargetLanguage': 'system',
+    'translationSystemPrompt': '',
   };
 
   operator [](String key) {

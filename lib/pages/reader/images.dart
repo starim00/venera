@@ -642,6 +642,16 @@ class _GalleryModeState extends State<_GalleryMode>
 
     return reader.images![startIndex];
   }
+
+  @override
+  List<int> getCurrentPageImageIndices() {
+    var range = getCurrentPageImageRange();
+    if (range == null) {
+      return const [];
+    }
+    var (startIndex, endIndex) = range;
+    return [for (var i = startIndex; i < endIndex; i++) i];
+  }
 }
 
 const Set<PointerDeviceKind> _kTouchLikeDeviceTypes = <PointerDeviceKind>{
@@ -1210,6 +1220,15 @@ class _ContinuousModeState extends State<_ContinuousMode>
       }
     }
     return imageKey;
+  }
+
+  @override
+  List<int> getCurrentPageImageIndices() {
+    if (reader.images == null || reader.images!.isEmpty) {
+      return const [];
+    }
+    final index = (reader.page - 1).clamp(0, reader.images!.length - 1);
+    return [index];
   }
 }
 

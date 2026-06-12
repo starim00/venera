@@ -31,6 +31,7 @@ import 'package:venera/foundation/image_provider/reader_image.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
+import 'package:venera/foundation/translation.dart';
 import 'package:venera/network/images.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/clipboard_image.dart';
@@ -58,6 +59,8 @@ part 'loading.dart';
 part 'chapters.dart';
 
 part 'chapter_comments.dart';
+
+part 'translation_panel.dart';
 
 extension _ReaderContext on BuildContext {
   _ReaderState get reader => findAncestorStateOfType<_ReaderState>()!;
@@ -811,4 +814,6 @@ abstract interface class _ImageViewController {
   Future<Uint8List?> getImageByOffset(Offset offset);
 
   String? getImageKeyByOffset(Offset offset);
+
+  List<int> getCurrentPageImageIndices();
 }

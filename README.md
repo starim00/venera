@@ -12,6 +12,10 @@
 
 A comic reader that support reading local and network comics.
 
+This repository is a fork of the original Venera project. The upstream project
+is no longer maintained, so this fork is used for ongoing maintenance and
+feature experiments.
+
 ## Features
 - Read local comics
 - Use javascript to create comic sources
@@ -20,6 +24,21 @@ A comic reader that support reading local and network comics.
 - Download comics
 - View comments, tags, and other information of comics if the source supports
 - Login to comment, rate, and other operations if the source supports
+
+### Fork-only additions
+
+- Page-level reader translation panel powered by OpenAI-compatible multimodal
+  chat completions.
+- Manual translation of the currently visible reader page or multi-page spread,
+  with a bottom-sheet translation result panel.
+- Local translation cache keyed by source, comic, episode, page range, image
+  hash, target language, and model.
+- Translation settings for endpoint, API key, model, target language, system
+  prompt, default prompt restore, and optional certificate-error bypass for
+  self-hosted endpoints.
+
+Page translation is only triggered manually from the reader. Current page images
+are sent to the user-configured model endpoint when translation is requested.
 
 ## Build from source
 1. Clone the repository
@@ -39,4 +58,3 @@ The Chinese translation of the manga tags is from this project.
 
 ## Headless Mode
 See [Headless Doc](doc/headless_doc.md)
-
